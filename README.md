@@ -1,6 +1,7 @@
 # erc223
 
-An implementation of ERC223 Token Standard
+An implementation of ERC223 Token Standard. Supports Ethereum Token and ERC20
+APIs.
 
 ## REQUIRES
 
