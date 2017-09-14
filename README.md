@@ -5,10 +5,10 @@ APIs.
 
 ## REQUIRES
 
-node.js
-solcjs
-web3 1.0.0+
-ethereumjs-testrpc
+ * node.js
+ * solcjs
+ * web3 1.0.0+
+ * ethereumjs-testrpc
 
 ## INSTALL
 
