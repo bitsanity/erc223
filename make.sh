@@ -1,5 +1,16 @@
 #!/bin/bash
 
-solcjs --bin --abi -o ./build ERC223Token.sol
-solcjs --bin --abi -o ./build TestStub.sol
+commd=$1
 
+if [ -z $commd ]
+then
+  echo compiling ...
+  solcjs --bin --abi --optimize -o ./build TestStub.sol
+  solcjs --bin --abi --optimize -o ./build ERC223Token.sol
+fi
+
+if [ "$commd" = "clean" ]
+then
+  echo cleaning ...
+  rm -rf build
+fi
