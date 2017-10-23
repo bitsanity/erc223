@@ -1,7 +1,8 @@
 const fs = require('fs');
 const Web3 = require('web3');
 
-const web3 = new Web3(new Web3.providers.HttpProvider("http://localhost:8545"));
+const web3 =
+  new Web3(new Web3.providers.HttpProvider("http://localhost:8545"));
 
 function getABI() {
   var contents = fs.readFileSync('../build/' +
@@ -25,6 +26,10 @@ contract.getPastEvents('allEvents',
 {
   for (var ii =0; ii < events.length; ii++) {
 
+    var decoded = web3.eth.abi.decodeParameters(
+        ["uint256","bytes"],
+        events[ii].raw.data );
+
     console.log(
       '--------------------------------------------------------------------' );
 
@@ -32,19 +37,19 @@ contract.getPastEvents('allEvents',
     {
       console.log( "receiveApproval from: 0x" +
                    events[ii].raw.topics[1].substring(26) + " value: " +
-                   parseInt(events[ii].raw.topics[2], 16) );
+                   decoded['0'] );
     }
     if (events[ii].event == 'TokenFallback')
     {
       console.log( "tokenFallback from: 0x" +
                    events[ii].raw.topics[1].substring(26) + " value: " +
-                   parseInt(events[ii].raw.topics[2], 16) );
+                   decoded['0'] );
     }
     if (events[ii].event == 'CustomFallback')
     {
       console.log( "customFallback from: 0x" +
                    events[ii].raw.topics[1].substring(26) + " value: " +
-                   parseInt(events[ii].raw.topics[2], 16) );
+                   decoded['0'] );
     }
   }
 });
