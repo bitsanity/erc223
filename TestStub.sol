@@ -19,20 +19,20 @@ contract TestStub
 
   // https://www.ethereum.org/token
   // function in contract 'tokenRecipient'
-  function receiveApproval( address from, uint256 value, bytes data )
+  function receiveApproval( address from, uint256 value, bytes data ) public
   {
     ApprovalReceived(from, value, data);
   }
 
   // ERC223
   // function in contract 'ContractReceiver'
-  function tokenFallback( address from, uint value, bytes data )
+  function tokenFallback( address from, uint value, bytes data ) public
   {
     TokenFallback(from, value, data);
   }
 
   // ERC223
-  function customFallback( address from, uint value, bytes data )
+  function customFallback( address from, uint value, bytes data ) public
   {
     CustomFallback(from, value, data);
   }

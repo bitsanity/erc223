@@ -1,43 +1,23 @@
-pragma solidity ^0.4.15;
+pragma solidity ^0.4.18;
 
 // https://www.ethereum.org/token
-contract tokenRecipient {
-  function receiveApproval( address from, uint256 value, bytes data );
+interface tokenRecipient {
+  function receiveApproval( address from, uint256 value, bytes data ) public;
 }
 
 // ERC223
-contract ContractReceiver {
-  function tokenFallback( address from, uint value, bytes data );
+interface ContractReceiver {
+  function tokenFallback( address from, uint value, bytes data ) public;
 }
 
-contract owned
-{
-  address public owner;
-  function owned() { owner = msg.sender; }
-
-  modifier onlyOwner {
-    require( msg.sender == owner );
-    _;
-  }
-
-  function transferOwnership( address newOwner ) onlyOwner {
-    owner = newOwner;
-  }
-
-  function closedown() onlyOwner {
-    selfdestruct( owner );
-  }
-}
-
-// An ERC223-compliant token with some ERC20 back-compatibility
+// ERC20 token with added ERC223 and Ethereum-Token support
 //
 // Blend of multiple interfaces:
-//
 // - https://theethereum.wiki/w/index.php/ERC20_Token_Standard
 // - https://www.ethereum.org/token (uncontrolled, non-standard)
 // - https://github.com/Dexaran/ERC23-tokens/blob/Recommended/ERC223_Token.sol
 
-contract ERC223Token is owned
+contract ERC223Token
 {
   string  public name;        // ERC20
   string  public symbol;      // ERC20
@@ -52,11 +32,11 @@ contract ERC223Token is owned
                   address indexed spender,
                   uint value );
 
-  // ERC223, ERC20 plus last parameter
+  // ERC223, ERC20-compatible
   event Transfer( address indexed from,
                   address indexed to,
                   uint256 value,
-                  bytes   indexed data );
+                  bytes    data );
 
   // Ethereum Token
   event Burn( address indexed from, uint256 value );
@@ -64,7 +44,7 @@ contract ERC223Token is owned
   function ERC223Token( uint256 initialSupply,
                         string tokenName,
                         uint8 decimalUnits,
-                        string tokenSymbol )
+                        string tokenSymbol ) public
   {
     balances_[msg.sender] = initialSupply;
     totalSupply = initialSupply;
@@ -73,15 +53,16 @@ contract ERC223Token is owned
     symbol = tokenSymbol;
   }
 
-  function() payable { revert(); } // do not accept money directly
+  function() public payable { revert(); } // does not accept money
 
   // ERC20
-  function balanceOf( address owner ) constant returns (uint) {
+  function balanceOf( address owner ) public constant returns (uint) {
     return balances_[owner];
   }
 
   // ERC20
-  function approve( address spender, uint256 value ) returns (bool success)
+  function approve( address spender, uint256 value ) public
+  returns (bool success)
   {
     allowances_[msg.sender][spender] = value;
     Approval( msg.sender, spender, value );
@@ -89,21 +70,21 @@ contract ERC223Token is owned
   }
  
   // ERC20
-  function allowance( address owner, address spender ) constant
+  function allowance( address owner, address spender ) public constant
   returns (uint256 remaining)
   {
     return allowances_[owner][spender];
   }
 
   // ERC20
-  function transfer(address to, uint256 value)
+  function transfer(address to, uint256 value) public
   {
     bytes memory empty; // null
     _transfer( msg.sender, to, value, empty );
   }
 
   // ERC20
-  function transferFrom( address from, address to, uint256 value )
+  function transferFrom( address from, address to, uint256 value ) public
   returns (bool success)
   {
     require( value <= allowances_[from][msg.sender] );
@@ -116,7 +97,9 @@ contract ERC223Token is owned
   }
 
   // Ethereum Token
-  function approveAndCall( address spender, uint256 value, bytes context )
+  function approveAndCall( address spender,
+                           uint256 value,
+                           bytes context ) public
   returns (bool success)
   {
     if ( approve(spender, value) )
@@ -129,7 +112,8 @@ contract ERC223Token is owned
   }        
 
   // Ethereum Token
-  function burn( uint256 value ) returns (bool success)
+  function burn( uint256 value ) public
+  returns (bool success)
   {
     require( balances_[msg.sender] >= value );
     balances_[msg.sender] -= value;
@@ -140,7 +124,8 @@ contract ERC223Token is owned
   }
 
   // Ethereum Token
-  function burnFrom( address from, uint256 value ) returns (bool success)
+  function burnFrom( address from, uint256 value ) public
+  returns (bool success)
   {
     require( balances_[from] >= value );
     require( value <= allowances_[from][msg.sender] );
@@ -153,41 +138,29 @@ contract ERC223Token is owned
     return true;
   }
 
-  function _transfer( address from,
-                      address to,
-                      uint value,
-                      bytes data ) internal
-  {
-    require( to != 0x0 );
-    require( balances_[from] >= value );
-    require( balances_[to] + value > balances_[to] ); // catch overflow
-
-    balances_[from] -= value;
-    balances_[to] += value;
-
-    Transfer( from, to, value, data );
-  }
-
   // ERC223 Transfer and invoke specified callback
   function transfer( address to,
                      uint value,
                      bytes data,
-                     string custom_fallback ) returns (bool success)
+                     string custom_fallback ) public returns (bool success)
   {
     _transfer( msg.sender, to, value, data );
 
     if ( isContract(to) )
     {
       ContractReceiver rx = ContractReceiver( to );
-      require( rx.call.value(0)
-                  (bytes4(sha3(custom_fallback)), msg.sender, value, data) );
+      require( rx.call.value(0)(bytes4(keccak256(custom_fallback)),
+               msg.sender,
+               value,
+               data) );
     }
 
     return true;
   }
 
   // ERC223 Transfer to a contract or externally-owned account
-  function transfer( address to, uint value, bytes data ) returns (bool success)
+  function transfer( address to, uint value, bytes data ) public
+  returns (bool success)
   {
     if (isContract(to)) {
       return transferToContract( to, value, data );
@@ -210,10 +183,25 @@ contract ERC223Token is owned
   }
 
   // ERC223 fetch contract size (must be nonzero to be a contract)
-  function isContract( address _addr ) private returns (bool)
+  function isContract( address _addr ) private constant returns (bool)
   {
     uint length;
     assembly { length := extcodesize(_addr) }
     return (length > 0);
+  }
+
+  function _transfer( address from,
+                      address to,
+                      uint value,
+                      bytes data ) internal
+  {
+    require( to != 0x0 );
+    require( balances_[from] >= value );
+    require( balances_[to] + value > balances_[to] ); // catch overflow
+
+    balances_[from] -= value;
+    balances_[to] += value;
+
+    Transfer( from, to, value, data );
   }
 }

@@ -11,31 +11,26 @@ exports.getWeb3 = function() { return web3_; }
 
 exports.getABI = function() {
   var contents = fs.readFileSync('../build/' +
-                   '/ERC223Token_sol_ERC223Token.abi').toString();
+                   'ERC223Token_sol_ERC223Token.abi').toString();
   var abiObj = JSON.parse(contents);
   return abiObj;
 }
 
 exports.getBinary = function() {
-  return fs.readFileSync('../build/' +
-           '/ERC223Token_sol_ERC223Token.bin').toString();
+  var binary = fs.readFileSync('../build/' +
+                 'ERC223Token_sol_ERC223Token.bin').toString();
+
+  if (!binary.startsWith('0x'))
+    binary = '0x' + binary;
+
+  return binary;
 }
 
 exports.getContract = function(sca) {
   return new web3_.eth.Contract( exports.getABI(), sca );
 }
 
-exports.getCoinbase = function() {
-  return web3_.eth.getCoinbase();
-}
-
 exports.getGasPrice = function() {
   return web3_.eth.gasPrice;
 }
 
-exports.assert = function(cond,msg) {
-  if (!cond) {
-    console.log( 'FAIL: ', msg);
-    //throw msg;
-  }
-}

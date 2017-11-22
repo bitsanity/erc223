@@ -17,16 +17,12 @@ web3.eth.getCoinbase().then( (res) => {
     console.log( 'bal: ', res );
   } );
 
-  contract.methods.owner().call().then( (ow) => {
-    console.log( "ow: ", ow );
-    Mod.assert( ow.toUpperCase() == cb.toUpperCase(), "owner" );
-  } );
-
 } );
 
 contract.methods.totalSupply().call().then( (ts) => {
   console.log( "ts: ", ts );
-  Mod.assert( ts == 1000000, "totalSupply" );
+  if ( ts != 1000000 )
+    console.log( "totalSupply FAIL" );
 } );
 
 contract.methods.decimals().call().then( (dc) => {
