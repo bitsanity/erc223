@@ -46,8 +46,8 @@ contract ERC223Token
                         uint8 decimalUnits,
                         string tokenSymbol ) public
   {
-    balances_[msg.sender] = initialSupply;
-    totalSupply = initialSupply;
+    totalSupply = initialSupply * 10 ** uint256(decimalUnits);
+    balances_[msg.sender] = totalSupply;
     name = tokenName;
     decimals = decimalUnits;
     symbol = tokenSymbol;

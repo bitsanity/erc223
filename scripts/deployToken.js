@@ -17,11 +17,11 @@ const bytecode = Mod.getBinary();
 const contract = new web3.eth.Contract(abi);
 
 var cb;
-web3.eth.getCoinbase().then( (res) => {
-  cb = res;
+web3.eth.getAccounts().then( (res) => {
+  cb = res[0];
 
   contract.deploy( {data: bytecode,
-                    arguments: [1000000,'Test Token',18,'TOK'] })
+                    arguments: [1000000,'Test Token',0,'TOK'] })
           .send( {from: cb, gas: 2000000}, (err,res) =>
           {
             if (err) console.log(err);

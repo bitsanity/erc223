@@ -21,8 +21,6 @@ web3.eth.getCoinbase().then( (res) => {
 
 contract.methods.totalSupply().call().then( (ts) => {
   console.log( "ts: ", ts );
-  if ( ts != 1000000 )
-    console.log( "totalSupply FAIL" );
 } );
 
 contract.methods.decimals().call().then( (dc) => {
