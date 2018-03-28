@@ -21,20 +21,20 @@ contract TestStub
   // function in contract 'tokenRecipient'
   function receiveApproval( address from, uint256 value, bytes data ) public
   {
-    ApprovalReceived(from, value, data);
+    emit ApprovalReceived(from, value, data);
   }
 
   // ERC223
   // function in contract 'ContractReceiver'
   function tokenFallback( address from, uint value, bytes data ) public
   {
-    TokenFallback(from, value, data);
+    emit TokenFallback(from, value, data);
   }
 
   // ERC223
   function customFallback( address from, uint value, bytes data ) public
   {
-    CustomFallback(from, value, data);
+    emit CustomFallback(from, value, data);
   }
 
 }
