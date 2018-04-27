@@ -99,10 +99,11 @@ contract ERC223Token
   }
 
   // ERC20
-  function transfer(address to, uint256 value) public
+  function transfer(address to, uint256 value) public returns (bool alwaystrue)
   {
     bytes memory empty; // null
     _transfer( msg.sender, to, value, empty );
+    return true;
   }
 
   // ERC20
