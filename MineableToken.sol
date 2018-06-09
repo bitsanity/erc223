@@ -1,14 +1,31 @@
-// compiler: 0.4.21+commit.dfe3193c.Emscripten.clang
-pragma solidity ^0.4.21;
+// 0.4.20+commit.3155dd80.Emscripten.clang
+pragma solidity ^0.4.20;
 
-// https://www.ethereum.org/token
+// Ethereum Token callback
 interface tokenRecipient {
   function receiveApproval( address from, uint256 value, bytes data ) external;
 }
 
-// ERC223
+// ERC223 callback
 interface ContractReceiver {
   function tokenFallback( address from, uint value, bytes data ) external;
+}
+
+contract owned {
+  address public owner;
+
+  function owned() public {
+    owner = msg.sender;
+  }
+
+  function changeOwner( address _miner ) public onlyOwner {
+    owner = _miner;
+  }
+
+  modifier onlyOwner {
+    require (msg.sender == owner);
+    _;
+  }
 }
 
 // ERC20 token with added ERC223 and Ethereum-Token support
@@ -18,12 +35,15 @@ interface ContractReceiver {
 // - https://www.ethereum.org/token (uncontrolled, non-standard)
 // - https://github.com/Dexaran/ERC23-tokens/blob/Recommended/ERC223_Token.sol
 
-contract ERC223Token
-{
+contract MineableToken is owned {
+
   string  public name;
   string  public symbol;
   uint8   public decimals;
   uint256 public totalSupply;
+  uint256 public supplyCap;
+
+  uint256 public noTransferBefore;
 
   mapping( address => uint256 ) balances_;
   mapping( address => mapping(address => uint256) ) allowances_;
@@ -33,28 +53,47 @@ contract ERC223Token
                   address indexed spender,
                   uint value );
 
+  // ERC20-compatible version only, breaks ERC223 compliance but etherscan
+  // and exchanges only support ERC20 version. Can't overload events
+
   event Transfer( address indexed from,
                   address indexed to,
                   uint256 value );
-               // bytes    data ); use ERC20 version instead
+                  //bytes    data );
 
   // Ethereum Token
-  event Burn( address indexed from, uint256 value );
+  event Burn( address indexed from,
+              uint256 value );
 
-  function ERC223Token( uint256 initialSupply,
-                        string tokenName,
-                        uint8 decimalUnits,
-                        string tokenSymbol ) public
-  {
-    totalSupply = initialSupply * 10 ** uint256(decimalUnits);
-    balances_[msg.sender] = totalSupply;
-    name = tokenName;
-    decimals = decimalUnits;
-    symbol = tokenSymbol;
-    emit Transfer( address(0), msg.sender, totalSupply );
+  function MineableToken( uint8 _decimals,
+                          uint256 _tokcap,
+                          string _name,
+                          string _symbol,
+                          uint256 _noTransferBefore // datetime, in seconds
+  ) public {
+
+    decimals = uint8(_decimals); // audit recommended 18 decimals
+    supplyCap = _tokcap * 10**uint256(decimals);
+    totalSupply = 0;
+
+    name = _name;
+    symbol = _symbol;
+    noTransferBefore = _noTransferBefore;
   }
 
-  function() public payable { revert(); } // does not accept money
+  function mine( uint256 qty ) public onlyOwner {
+    require (    (totalSupply + qty) > totalSupply
+              && (totalSupply + qty) <= supplyCap
+            );
+
+    totalSupply += qty;
+    balances_[owner] += qty;
+    emit Transfer( address(0), owner, qty );
+  }
+
+  function cap() public constant returns(uint256) {
+    return supplyCap;
+  }
 
   // ERC20
   function balanceOf( address owner ) public constant returns (uint) {
@@ -62,15 +101,14 @@ contract ERC223Token
   }
 
   // ERC20
-  //
-  // WARNING! When changing the approval amount, first set it back to zero
-  // AND wait until the transaction is mined. Only afterwards set the new
-  // amount. Otherwise you may be prone to a race condition attack.
-  // See: https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
-
   function approve( address spender, uint256 value ) public
   returns (bool success)
   {
+    // WARNING! When changing the approval amount, first set it back to zero
+    // AND wait until the transaction is mined. Only afterwards set the new
+    // amount. Otherwise you may be prone to a race condition attack.
+    // See: https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+
     allowances_[msg.sender][spender] = value;
     emit Approval( msg.sender, spender, value );
     return true;
@@ -80,8 +118,8 @@ contract ERC223Token
   function safeApprove( address _spender,
                         uint256 _currentValue,
                         uint256 _value ) public
-                        returns (bool success) {
-
+  returns (bool success)
+  {
     // If current allowance for _spender is equal to _currentValue, then
     // overwrite it with _value and return true, otherwise return false.
 
@@ -129,9 +167,13 @@ contract ERC223Token
     if ( approve(spender, value) )
     {
       tokenRecipient recip = tokenRecipient( spender );
-      recip.receiveApproval( msg.sender, value, context );
+
+      if (isContract(recip))
+        recip.receiveApproval( msg.sender, value, context );
+
       return true;
     }
+
     return false;
   }        
 
@@ -170,14 +212,11 @@ contract ERC223Token
   {
     _transfer( msg.sender, to, value, data );
 
-    if ( isContract(to) )
-    {
-      ContractReceiver rx = ContractReceiver( to );
-      require( address(rx).call.value(0)(bytes4(keccak256(custom_fallback)),
-               msg.sender,
-               value,
-               data) );
-    }
+    // throws if custom_fallback is not a valid contract call
+    require( address(to).call.value(0)(bytes4(keccak256(custom_fallback)),
+             msg.sender,
+             value,
+             data) );
 
     return true;
   }
@@ -201,9 +240,13 @@ contract ERC223Token
     _transfer( msg.sender, to, value, data );
 
     ContractReceiver rx = ContractReceiver(to);
-    rx.tokenFallback( msg.sender, value, data );
 
-    return true;
+    if (isContract(rx)) {
+      rx.tokenFallback( msg.sender, value, data );
+      return true;
+    }
+
+    return false;
   }
 
   // ERC223 fetch contract size (must be nonzero to be a contract)
@@ -223,12 +266,15 @@ contract ERC223Token
     require( balances_[from] >= value );
     require( balances_[to] + value > balances_[to] ); // catch overflow
 
+    // no transfers allowed before trading begins
+    if (msg.sender != owner) require( now >= noTransferBefore );
+
     balances_[from] -= value;
     balances_[to] += value;
 
-    //Transfer( from, to, value, data ); ERC223-compat version
-    bytes memory empty;
-    empty = data;
-    emit Transfer( from, to, value ); // ERC20-compat version
+    bytes memory ignore;
+    ignore = data;                    // ignore compiler warning
+    emit Transfer( from, to, value ); // ignore data
   }
 }
+

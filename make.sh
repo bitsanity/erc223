@@ -7,6 +7,7 @@ then
   echo compiling ...
   solcjs --bin --abi --optimize -o ./build TestStub.sol
   solcjs --bin --abi --optimize -o ./build ERC223Token.sol
+  solcjs --bin --abi --optimize -o ./build MineableToken.sol
 fi
 
 if [ "$commd" = "clean" ]
