@@ -1,14 +1,17 @@
-// compiler: 0.4.21+commit.dfe3193c.Emscripten.clang
-pragma solidity ^0.4.21;
+// SPDX-License-Identifier: UNLICENSED
+
+pragma solidity ^0.8.4;
 
 // https://www.ethereum.org/token
 interface tokenRecipient {
-  function receiveApproval( address from, uint256 value, bytes data ) external;
+  function receiveApproval( address from, uint256 value, bytes calldata data )
+  external;
 }
 
 // ERC223
 interface ContractReceiver {
-  function tokenFallback( address from, uint value, bytes data ) external;
+  function tokenFallback( address from, uint value, bytes calldata data )
+  external;
 }
 
 // ERC20 token with added ERC223 and Ethereum-Token support
@@ -41,10 +44,10 @@ contract ERC223Token
   // Ethereum Token
   event Burn( address indexed from, uint256 value );
 
-  function ERC223Token( uint256 initialSupply,
-                        string tokenName,
-                        uint8 decimalUnits,
-                        string tokenSymbol ) public
+  constructor( uint256 initialSupply,
+               string memory tokenName,
+               uint8 decimalUnits,
+               string memory tokenSymbol )
   {
     totalSupply = initialSupply * 10 ** uint256(decimalUnits);
     balances_[msg.sender] = totalSupply;
@@ -54,10 +57,11 @@ contract ERC223Token
     emit Transfer( address(0), msg.sender, totalSupply );
   }
 
-  function() public payable { revert(); } // does not accept money
+  receive() external payable { revert("does not accept eth"); }
+  fallback() external payable { revert("calldata does not match a function"); }
 
   // ERC20
-  function balanceOf( address owner ) public constant returns (uint) {
+  function balanceOf( address owner ) public view returns (uint) {
     return balances_[owner];
   }
 
@@ -92,7 +96,7 @@ contract ERC223Token
   }
 
   // ERC20
-  function allowance( address owner, address spender ) public constant
+  function allowance( address owner, address spender ) public view
   returns (uint256 remaining)
   {
     return allowances_[owner][spender];
@@ -122,7 +126,7 @@ contract ERC223Token
   // Ethereum Token
   function approveAndCall( address spender,
                            uint256 value,
-                           bytes context ) public
+                           bytes calldata context ) public
   returns (bool success)
   {
     if ( approve(spender, value) )
@@ -164,25 +168,26 @@ contract ERC223Token
   // ERC223 Transfer and invoke specified callback
   function transfer( address to,
                      uint value,
-                     bytes data,
-                     string custom_fallback ) public returns (bool success)
+                     bytes calldata data,
+                     string calldata custom_fallback )
+  public returns (bool success)
   {
     _transfer( msg.sender, to, value, data );
 
-    if ( isContract(to) )
-    {
-      ContractReceiver rx = ContractReceiver( to );
-      require( address(rx).call.value(0)(bytes4(keccak256(custom_fallback)),
-               msg.sender,
-               value,
-               data) );
-    }
+    ContractReceiver rx = ContractReceiver( to );
+    // https://docs.soliditylang.org/en/v0.5.1/050-breaking-changes.html#semantic-and-syntactic-changes
+    (bool resok, bytes memory resdata) =
+          address(rx).call( abi.encodeWithSignature(custom_fallback,
+                          msg.sender, value, data) );
+
+    require( resok, "custom fallback failed" );
+    if (resdata.length > 0) {} // suppress warning
 
     return true;
   }
 
   // ERC223 Transfer to a contract or externally-owned account
-  function transfer( address to, uint value, bytes data ) public
+  function transfer( address to, uint value, bytes calldata data ) public
   returns (bool success)
   {
     if (isContract(to)) {
@@ -194,19 +199,18 @@ contract ERC223Token
   }
 
   // ERC223 Transfer to contract and invoke tokenFallback() method
-  function transferToContract( address to, uint value, bytes data ) private
-  returns (bool success)
+  function transferToContract( address to, uint value, bytes calldata data )
+  private returns (bool success)
   {
     _transfer( msg.sender, to, value, data );
 
     ContractReceiver rx = ContractReceiver(to);
-    rx.tokenFallback( msg.sender, value, data );
-
+    rx.tokenFallback(msg.sender, value, data);
     return true;
   }
 
   // ERC223 fetch contract size (must be nonzero to be a contract)
-  function isContract( address _addr ) private constant returns (bool)
+  function isContract( address _addr ) private view returns (bool)
   {
     uint length;
     assembly { length := extcodesize(_addr) }
@@ -216,9 +220,9 @@ contract ERC223Token
   function _transfer( address from,
                       address to,
                       uint value,
-                      bytes data ) internal
+                      bytes memory data ) internal
   {
-    require( to != 0x0 );
+    require( to != address(0x0) );
     require( balances_[from] >= value );
     require( balances_[to] + value > balances_[to] ); // catch overflow
 

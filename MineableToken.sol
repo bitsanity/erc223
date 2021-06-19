@@ -1,20 +1,23 @@
-// 0.4.20+commit.3155dd80.Emscripten.clang
-pragma solidity ^0.4.20;
+// SPDX-License-Identifier: UNLICENSED
+
+pragma solidity ^0.8.4;
 
 // Ethereum Token callback
 interface tokenRecipient {
-  function receiveApproval( address from, uint256 value, bytes data ) external;
+  function receiveApproval( address from, uint256 value, bytes calldata data )
+  external;
 }
 
 // ERC223 callback
 interface ContractReceiver {
-  function tokenFallback( address from, uint value, bytes data ) external;
+  function tokenFallback( address from, uint value, bytes calldata data )
+  external;
 }
 
 contract owned {
   address public owner;
 
-  function owned() public {
+  constructor() {
     owner = msg.sender;
   }
 
@@ -41,9 +44,6 @@ contract MineableToken is owned {
   string  public symbol;
   uint8   public decimals;
   uint256 public totalSupply;
-  uint256 public supplyCap;
-
-  uint256 public noTransferBefore;
 
   mapping( address => uint256 ) balances_;
   mapping( address => mapping(address => uint256) ) allowances_;
@@ -54,7 +54,7 @@ contract MineableToken is owned {
                   uint value );
 
   // ERC20-compatible version only, breaks ERC223 compliance but etherscan
-  // and exchanges only support ERC20 version. Can't overload events
+  // and most exchanges only support ERC20 version. Events can't be overloaded
 
   event Transfer( address indexed from,
                   address indexed to,
@@ -65,38 +65,30 @@ contract MineableToken is owned {
   event Burn( address indexed from,
               uint256 value );
 
-  function MineableToken( uint8 _decimals,
-                          uint256 _tokcap,
-                          string _name,
-                          string _symbol,
-                          uint256 _noTransferBefore // datetime, in seconds
-  ) public {
+  constructor ( uint8 _decimals,
+                string memory _name,
+                string memory _symbol ) {
 
     decimals = uint8(_decimals); // audit recommended 18 decimals
-    supplyCap = _tokcap * 10**uint256(decimals);
     totalSupply = 0;
 
     name = _name;
     symbol = _symbol;
-    noTransferBefore = _noTransferBefore;
   }
 
-  function mine( uint256 qty ) public onlyOwner {
-    require (    (totalSupply + qty) > totalSupply
-              && (totalSupply + qty) <= supplyCap
-            );
+  receive() external payable { revert("does not accept eth"); }
+  fallback() external payable { revert("calldata does not match a function"); }
+
+  function mine( uint256 qty, address receiver ) public onlyOwner {
+    require ( (totalSupply + qty) > totalSupply, "mine: overrun error" );
 
     totalSupply += qty;
-    balances_[owner] += qty;
-    emit Transfer( address(0), owner, qty );
-  }
-
-  function cap() public constant returns(uint256) {
-    return supplyCap;
+    balances_[receiver] += qty;
+    emit Transfer( address(0), receiver, qty );
   }
 
   // ERC20
-  function balanceOf( address owner ) public constant returns (uint) {
+  function balanceOf( address owner ) public view returns (uint) {
     return balances_[owner];
   }
 
@@ -130,7 +122,7 @@ contract MineableToken is owned {
   }
 
   // ERC20
-  function allowance( address owner, address spender ) public constant
+  function allowance( address owner, address spender ) public view
   returns (uint256 remaining)
   {
     return allowances_[owner][spender];
@@ -149,7 +141,8 @@ contract MineableToken is owned {
   function transferFrom( address from, address to, uint256 value ) public
   returns (bool success)
   {
-    require( value <= allowances_[from][msg.sender] );
+    require( value <= allowances_[from][msg.sender],
+             "transferFrom: insufficient allowance" );
 
     allowances_[from][msg.sender] -= value;
     bytes memory empty;
@@ -161,15 +154,13 @@ contract MineableToken is owned {
   // Ethereum Token
   function approveAndCall( address spender,
                            uint256 value,
-                           bytes context ) public
+                           bytes calldata context ) public
   returns (bool success)
   {
     if ( approve(spender, value) )
     {
       tokenRecipient recip = tokenRecipient( spender );
-
-      if (isContract(recip))
-        recip.receiveApproval( msg.sender, value, context );
+      recip.receiveApproval( msg.sender, value, context );
 
       return true;
     }
@@ -181,7 +172,8 @@ contract MineableToken is owned {
   function burn( uint256 value ) public
   returns (bool success)
   {
-    require( balances_[msg.sender] >= value );
+    require( balances_[msg.sender] >= value, "burn: insufficient balance" );
+
     balances_[msg.sender] -= value;
     totalSupply -= value;
 
@@ -193,8 +185,10 @@ contract MineableToken is owned {
   function burnFrom( address from, uint256 value ) public
   returns (bool success)
   {
-    require( balances_[from] >= value );
-    require( value <= allowances_[from][msg.sender] );
+    require( balances_[from] >= value, "burnFrom: insufficient balance" );
+
+    require( value <= allowances_[from][msg.sender],
+             "burnFrom: insuff allowance" );
 
     balances_[from] -= value;
     allowances_[from][msg.sender] -= value;
@@ -207,23 +201,26 @@ contract MineableToken is owned {
   // ERC223 Transfer and invoke specified callback
   function transfer( address to,
                      uint value,
-                     bytes data,
-                     string custom_fallback ) public returns (bool success)
+                     bytes calldata data,
+                     string calldata custom_fallback )
+  public returns (bool success)
   {
     _transfer( msg.sender, to, value, data );
 
-    // throws if custom_fallback is not a valid contract call
-    require( address(to).call.value(0)(bytes4(keccak256(custom_fallback)),
-             msg.sender,
-             value,
-             data) );
+    ContractReceiver rx = ContractReceiver( to );
+    // https://docs.soliditylang.org/en/v0.5.1/050-breaking-changes.html#semantic-and-syntactic-changes
+    (bool resok, bytes memory resdata) =
+      address(rx).call( abi.encodeWithSignature(custom_fallback,
+                          msg.sender, value, data) );
 
-    return true;
+    if (resdata.length > 0) {} // suppress warning
+
+    return resok;
   }
 
   // ERC223 Transfer to a contract or externally-owned account
-  function transfer( address to, uint value, bytes data ) public
-  returns (bool success)
+  function transfer( address to, uint value, bytes calldata data )
+  public returns (bool success)
   {
     if (isContract(to)) {
       return transferToContract( to, value, data );
@@ -234,14 +231,14 @@ contract MineableToken is owned {
   }
 
   // ERC223 Transfer to contract and invoke tokenFallback() method
-  function transferToContract( address to, uint value, bytes data ) private
-  returns (bool success)
+  function transferToContract( address to, uint value, bytes memory data )
+  private returns (bool success)
   {
     _transfer( msg.sender, to, value, data );
 
     ContractReceiver rx = ContractReceiver(to);
 
-    if (isContract(rx)) {
+    if (isContract(to)) {
       rx.tokenFallback( msg.sender, value, data );
       return true;
     }
@@ -250,7 +247,7 @@ contract MineableToken is owned {
   }
 
   // ERC223 fetch contract size (must be nonzero to be a contract)
-  function isContract( address _addr ) private constant returns (bool)
+  function isContract( address _addr ) private view returns (bool)
   {
     uint length;
     assembly { length := extcodesize(_addr) }
@@ -260,14 +257,11 @@ contract MineableToken is owned {
   function _transfer( address from,
                       address to,
                       uint value,
-                      bytes data ) internal
+                      bytes memory data ) internal
   {
-    require( to != 0x0 );
-    require( balances_[from] >= value );
-    require( balances_[to] + value > balances_[to] ); // catch overflow
-
-    // no transfers allowed before trading begins
-    if (msg.sender != owner) require( now >= noTransferBefore );
+    require( to != address(0x0), "_transfer: to cannot be null" );
+    require( balances_[from] >= value, "_transfer: insufficient balance" );
+    require( balances_[to] + value > balances_[to], "_transfer: overflow" );
 
     balances_[from] -= value;
     balances_[to] += value;
